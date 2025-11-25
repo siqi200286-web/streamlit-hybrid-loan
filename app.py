@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -134,3 +133,51 @@ if uploaded_file is not None:
             logi_clf.fit(X_train, y_train)
             proba_log = logi_clf.predict_proba(X_test)[:, 1]
             y_pred_log = (proba_log >= 0.5).astype(int)
+
+            acc_log = accuracy_score(y_test, y_pred_log)
+            auc_log = roc_auc_score(y_test, proba_log)
+
+            # 8-2. XGBoost
+            xgb_clf.fit(X_train, y_train)
+            proba_xgb = xgb_clf.predict_proba(X_test)[:, 1]
+            y_pred_xgb = (proba_xgb >= 0.5).astype(int)
+
+            acc_xgb = accuracy_score(y_test, y_pred_xgb)
+            auc_xgb = roc_auc_score(y_test, proba_xgb)
+
+            # 8-3. Hybrid (단순 가중 평균)
+            proba_hybrid = w_log * proba_log + w_xgb * proba_xgb
+            y_pred_hybrid = (proba_hybrid >= 0.5).astype(int)
+
+            acc_hybrid = accuracy_score(y_test, y_pred_hybrid)
+            auc_hybrid = roc_auc_score(y_test, proba_hybrid)
+
+        # -----------------------------
+        # 9. 결과 출력
+        # -----------------------------
+        st.subheader("모델 성능 비교")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.markdown("### Logistic Regression")
+            st.write(f"Accuracy: **{acc_log:.4f}**")
+            st.write(f"ROC AUC: **{auc_log:.4f}**")
+
+        with col2:
+            st.markdown("### XGBoost")
+            st.write(f"Accuracy: **{acc_xgb:.4f}**")
+            st.write(f"ROC AUC: **{auc_xgb:.4f}**")
+
+        with col3:
+            st.markdown("### Hybrid (가중 평균)")
+            st.write(f"Accuracy: **{acc_hybrid:.4f}**")
+            st.write(f"ROC AUC: **{auc_hybrid:.4f}**")
+
+        st.markdown("---")
+        st.subheader("Hybrid 모델 분류 리포트")
+        report = classification_report(y_test, y_pred_hybrid, output_dict=False)
+        st.text(report)
+
+else:
+    st.info("먼저 CSV 파일을 업로드하세요.")
