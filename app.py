@@ -15,24 +15,23 @@ from xgboost import XGBClassifier
 
 
 # -----------------------------
-# 0. 페이지 기본 설정
+# 페이지 기본 설정
 # -----------------------------
 st.set_page_config(page_title="Hybrid Loan Default Model", layout="wide")
 
 st.title("대출 부도 예측 Hybrid 모델 (Logistic + XGBoost)")
-st.write("CSV 파일을 업로드하고, Target 변수를 선택한 후 하이브리드 모델을 학습합니다.")
+st.write("CSV 파일을 업로드하고, Target 변수를 선택한 후 모델을 학습합니다.")
 
 
 # -----------------------------
 # 1. 파일 업로드
 # -----------------------------
-uploaded_file = st.file_uploader("CSV 파일을 업로드하세요", type=["csv"])
+uploaded_file = st.file_uploader("CSV 파일 업로드", type=["csv"])
 
 if uploaded_file is not None:
-    # 데이터 읽기
     df = pd.read_csv(uploaded_file)
 
-    st.success("파일 업로드 완료")
+    st.success("파일 업로드 완료!")
     st.write("데이터 미리보기:")
     st.dataframe(df.head())
 
@@ -41,13 +40,13 @@ if uploaded_file is not None:
     # -----------------------------
     st.subheader("Target 변수 선택")
 
-    # 기본값: 'target' 이라는 컬럼이 있으면 자동 선택
-    default_target_col = "target" if "target" in df.columns else None
-    target_col = st.selectbox("Target 변수를 선택하세요", df.columns, index=(
-        list(df.columns).index(default_target_col) if default_target_col in df.columns else 0
-    ))
+    default_target = "target" if "target" in df.columns else None
+    target_col = st.selectbox(
+        "Target 변수를 선택하세요",
+        options=df.columns,
+        index=list(df.columns).index(default_target) if default_target else 0
+    )
 
-    # y, X 분리
     y = df[target_col]
     X = df.drop(columns=[target_col])
 
@@ -55,129 +54,9 @@ if uploaded_file is not None:
     # 3. 수치형 / 범주형 변수 구분
     # -----------------------------
     numeric_features = X.select_dtypes(include=["int64", "float64"]).columns.tolist()
-    categorical_features = X.select_dtypes(include=["object", "category"]).columns.tolist()
+    categorical_features = X.select_dtypes(include=["object"]).columns.tolist()
 
     st.write(f"수치형 변수 개수: {len(numeric_features)}")
     st.write(f"범주형 변수 개수: {len(categorical_features)}")
 
-    # -----------------------------
-    # 4. 전처리 파이프라인 정의
-    # -----------------------------
-    numeric_transformer = Pipeline(steps=[
-        ("imputer", SimpleImputer(strategy="median")),
-        ("scaler", StandardScaler())
-    ])
-
-    categorical_transformer = Pipeline(steps=[
-        ("imputer", SimpleImputer(strategy="most_frequent")),
-        # sparse=False 로 dense matrix 반환 (Logistic, XGBoost 모두 사용 가능)
-        ("encoder", OneHotEncoder(handle_unknown="ignore", sparse=False))
-    ])
-
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ("num", numeric_transformer, numeric_features),
-            ("cat", categorical_transformer, categorical_features)
-        ]
-    )
-
-    # -----------------------------
-    # 5. Train / Test 분할
-    # -----------------------------
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y,
-        test_size=0.2,
-        random_state=42,
-        stratify=y if len(y.unique()) <= 10 else None  # 이진/다중 분류일 때만 stratify
-    )
-
-    # -----------------------------
-    # 6. 모델 정의
-    # -----------------------------
-    # Logistic Regression 파이프라인
-    logi_clf = Pipeline(steps=[
-        ("preprocess", preprocessor),
-        ("clf", LogisticRegression(max_iter=2000))
-    ])
-
-    # XGBoost 파이프라인
-    xgb_clf = Pipeline(steps=[
-        ("preprocess", preprocessor),
-        ("clf", XGBClassifier(
-            n_estimators=200,
-            learning_rate=0.1,
-            max_depth=4,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            eval_metric="logloss",
-            n_jobs=-1,
-            random_state=42
-        ))
-    ])
-
-    # -----------------------------
-    # 7. 하이퍼파라미터: 가중치 슬라이더
-    # -----------------------------
-    st.subheader("Hybrid 가중치 설정 (Logistic vs XGBoost)")
-    w_log = st.slider("Logistic Regression 비중", 0.0, 1.0, 0.5, 0.1)
-    w_xgb = 1.0 - w_log
-    st.write(f"▶ Logistic 비중: {w_log:.2f}, XGBoost 비중: {w_xgb:.2f}")
-
-    # -----------------------------
-    # 8. 모델 학습 & 평가 버튼
-    # -----------------------------
-    if st.button("모델 학습 및 평가 실행"):
-        with st.spinner("모델을 학습 중입니다..."):
-
-            # 8-1. Logistic Regression
-            logi_clf.fit(X_train, y_train)
-            proba_log = logi_clf.predict_proba(X_test)[:, 1]
-            y_pred_log = (proba_log >= 0.5).astype(int)
-
-            acc_log = accuracy_score(y_test, y_pred_log)
-            auc_log = roc_auc_score(y_test, proba_log)
-
-            # 8-2. XGBoost
-            xgb_clf.fit(X_train, y_train)
-            proba_xgb = xgb_clf.predict_proba(X_test)[:, 1]
-            y_pred_xgb = (proba_xgb >= 0.5).astype(int)
-
-            acc_xgb = accuracy_score(y_test, y_pred_xgb)
-            auc_xgb = roc_auc_score(y_test, proba_xgb)
-
-            # 8-3. Hybrid (단순 가중 평균)
-            proba_hybrid = w_log * proba_log + w_xgb * proba_xgb
-            y_pred_hybrid = (proba_hybrid >= 0.5).astype(int)
-
-            acc_hybrid = accuracy_score(y_test, y_pred_hybrid)
-            auc_hybrid = roc_auc_score(y_test, proba_hybrid)
-
-        # -----------------------------
-        # 9. 결과 출력
-        # -----------------------------
-        st.subheader("모델 성능 비교")
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.markdown("### Logistic Regression")
-            st.write(f"Accuracy: **{acc_log:.4f}**")
-            st.write(f"ROC AUC: **{auc_log:.4f}**")
-
-        with col2:
-            st.markdown("### XGBoost")
-            st.write(f"Accuracy: **{acc_xgb:.4f}**")
-            st.write(f"ROC AUC: **{auc_xgb:.4f}**")
-
-        with col3:
-            st.markdown("### Hybrid (가중 평균)")
-            st.write(f"Accuracy: **{acc_hybrid:.4f}**")
-            st.write(f"ROC AUC: **{auc_hybrid:.4f}**")
-
-        st.markdown("---")
-        st.subheader("Hybrid 모델 분류 리포트")
-        report = classification_report(y_test, y_pred_hybrid, output_dict=False)
-        st.text(report)
-
-else:
-    st.info("먼저 CSV 파일을 업로드하세요.")
+    # --------------------
