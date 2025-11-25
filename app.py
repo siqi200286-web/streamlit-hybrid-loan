@@ -38,8 +38,27 @@ if uploaded_file is not None:
         bool_cols = X.select_dtypes(include=["bool"]).columns
         X[bool_cols] = X[bool_cols].astype(int)
 
-        # 숫자형 컬럼만 사용
-        X = X.select_dtypes(include=["number"]).copy()
+        # 숫자 변환이 가능한 object 컬럼을 숫자로 강제 변환
+object_cols = X.select_dtypes(include=["object"]).columns
+for col in object_cols:
+    X[col] = pd.to_numeric(X[col].astype(str).str.replace("%", "")
+                                               .str.replace("$", "")
+                                               .str.replace(",", "")
+                                               .str.strip(),
+                           errors="coerce")
+
+# bool → int
+bool_cols = X.select_dtypes(include=["bool"]).columns
+X[bool_cols] = X[bool_cols].astype(int)
+
+# 숫자형 컬럼만 다시 선택
+X = X.select_dtypes(include=["number"]).copy()
+
+# 무한대 값 제거
+X = X.replace([np.inf, -np.inf], np.nan)
+
+# NaN은 중앙값으로 대체
+X = X.fillna(X.median())
 
         # 무한대 값 처리
         X = X.replace([np.inf, -np.inf], np.nan)
